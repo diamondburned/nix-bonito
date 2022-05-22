@@ -1,0 +1,6 @@
+[root]
+ use-sudo = true
+ override-channels = false
+
+[root.channels]
+ nixos = "github:NixOS/nixpkgs 1ffba9f"
