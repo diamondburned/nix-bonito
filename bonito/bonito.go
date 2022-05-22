@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"sort"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/diamondburned/nix-bonito/bonito/internal/executil"
 	"github.com/diamondburned/nix-bonito/bonito/internal/nixutil"
 	"github.com/pelletier/go-toml/v2"
@@ -126,19 +126,6 @@ func NewConfigFromReader(r io.Reader) (Config, error) {
 	return cfg, nil
 }
 
-// UserConfig is the structure of the user configuration.
-type UserConfig struct {
-	// UseSudo, if true, will use sudo if the current user is not the user that
-	// this config belongs to. If it's false and the current user is not this
-	// user, then an error will be thrown.
-	UseSudo bool `toml:"use-sudo"`
-	// OverrideChannels, if true, will cause all channels not defined in the
-	// configuration file to be deleted.
-	OverrideChannels bool `toml:"override-channels"`
-	// Channels maps the channel names to its respective input strings.
-	Channels map[string]ChannelInput `toml:"channels"`
-}
-
 // CreateLockFile creates a new LockFile using the channels inside the current
 // config.
 func (cfg Config) CreateLockFile(ctx context.Context) (LockFile, error) {
@@ -156,6 +143,29 @@ func (cfg Config) CreateLockFile(ctx context.Context) (LockFile, error) {
 	return LockFile{
 		Channels: updater.locks,
 	}, nil
+}
+
+// UserConfig is the structure of the user configuration.
+type UserConfig struct {
+	// UseSudo, if true, will use sudo if the current user is not the user that
+	// this config belongs to. If it's false and the current user is not this
+	// user, then an error will be thrown.
+	UseSudo bool `toml:"use-sudo"`
+	// OverrideChannels, if true, will cause all channels not defined in the
+	// configuration file to be deleted.
+	OverrideChannels bool `toml:"override-channels"`
+	// Channels maps the channel names to its respective input strings.
+	Channels map[string]ChannelInput `toml:"channels"`
+}
+
+/// ChannelNames returns the sorted list of channel names inside the user config.
+func (cfg UserConfig) ChannelNames() []string {
+	names := make([]string, 0, len(cfg.Channels))
+	for name := range cfg.Channels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // State encapsulates the current configuration and the locks of it. A State can
@@ -179,7 +189,58 @@ func (s *State) Apply(ctx context.Context, update bool) error {
 		s.Lock = newLock
 	}
 
-	spew.Dump(s)
+	for username, usercfg := range s.Config {
+		if err := s.apply(ctx, username, usercfg); err != nil {
+			return errors.Wrapf(err, "cannot apply for user %q", username)
+		}
+	}
+
+	return nil
+}
+
+func (s *State) apply(ctx context.Context, username string, usercfg UserConfig) error {
+	ctx = executil.WithOpts(ctx, executil.Opts{
+		Username: username,
+		UseSudo:  usercfg.UseSudo,
+	})
+
+	channels := newChannelExecer(ctx, false)
+
+	oldList, err := channels.list()
+	if err != nil {
+		return errors.Wrap(err, "cannot get current channels list")
+	}
+
+	rollback := func() {
+		// Undo all our channels.
+		for name := range usercfg.Channels {
+			channels.remove(name)
+		}
+		// Re-add the old ones.
+		for name, url := range oldList {
+			channels.add(name, url)
+		}
+	}
+
+	for name, channel := range usercfg.Channels {
+		lock, ok := s.Lock.Channels[channel]
+		if !ok {
+			rollback()
+			return fmt.Errorf("channel %q missing lock", channel)
+		}
+
+		_, err := channels.add(name, lock.URL)
+		if err != nil {
+			rollback()
+			return errors.Wrapf(err, "cannot add channel %q", name)
+		}
+	}
+
+	if err := channels.update(usercfg.ChannelNames()...); err != nil {
+		rollback()
+		return errors.Wrap(err, "cannot update")
+	}
+
 	return nil
 }
 
