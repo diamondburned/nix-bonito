@@ -4,3 +4,4 @@
 
 [root.channels]
  nixos = "github:NixOS/nixpkgs 1ffba9f"
+ home-manager = "git://github.com/nix-community/home-manager master"

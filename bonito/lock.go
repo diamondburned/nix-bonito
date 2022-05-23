@@ -108,7 +108,7 @@ func (u *locksUpdater) add(username string, usercfg UserConfig) (err error) {
 			continue
 		}
 
-		url, err := input.Resolve()
+		url, err := input.Resolve(ctx)
 		if err != nil {
 			return errors.Wrapf(err, "cannot resolve %q", input)
 		}

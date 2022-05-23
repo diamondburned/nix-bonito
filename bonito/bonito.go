@@ -61,16 +61,10 @@ type State struct {
 
 // Apply applies the state onto the current system.
 func (s *State) Apply(ctx context.Context, update bool) error {
-	newLock, err := s.Config.CreateLockFile(ctx)
-	if err != nil {
-		return err
-	}
-
-	if !s.Lock.Eq(newLock) {
-		if !update {
-			return errors.New("locks need to be updated first")
+	if update {
+		if err := s.UpdateLocks(ctx); err != nil {
+			return err
 		}
-		s.Lock = newLock
 	}
 
 	for username, usercfg := range s.Config {
@@ -118,6 +112,8 @@ func (s *State) apply(ctx context.Context, username string, usercfg UserConfig) 
 			rollback()
 			return errors.Wrapf(err, "cannot add channel %q", name)
 		}
+
+		// TODO: validate hash
 	}
 
 	if err := channels.update(usercfg.ChannelNames()...); err != nil {

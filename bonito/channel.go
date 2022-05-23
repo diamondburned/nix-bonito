@@ -3,12 +3,8 @@ package bonito
 import (
 	"context"
 	"encoding"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
-	"net/url"
-	"path"
 	"strings"
 
 	"github.com/diamondburned/nix-bonito/bonito/internal/executil"
@@ -40,7 +36,7 @@ func ParseChannelInput(chInput string) (ChannelInput, error) {
 }
 
 // Resolve resolves the channel input using one of the ChannelResolvers.
-func (in ChannelInput) Resolve() (string, error) {
+func (in ChannelInput) Resolve(ctx context.Context) (string, error) {
 	u, err := in.URL.Parse()
 	if err != nil {
 		return "", err
@@ -51,7 +47,7 @@ func (in ChannelInput) Resolve() (string, error) {
 		return "", fmt.Errorf("cannot resolve unknown %q", u.Scheme)
 	}
 
-	return resolve(in)
+	return resolve(ctx, in)
 }
 
 // String returns the ChannelInput formatted as a string.
@@ -118,98 +114,20 @@ func (in ChannelInput) MarshalJSON() ([]byte, error) {
 
 // ChannelResolver is a function type that resolves a channel URL to the URL that's
 // actually used for adding into nix-channel.
-type ChannelResolver func(ChannelInput) (string, error)
+type ChannelResolver func(context.Context, ChannelInput) (string, error)
 
 // ChannelResolvers maps URL schemes to resolvers.
 var ChannelResolvers = map[string]ChannelResolver{
 	"git":     resolveGit,
-	"github":  resolveGitHub,
-	"gitlab":  resolveGitLab,
-	"gitsrht": resolveSourcehut,
+	"github":  resolveGit,
+	"gitlab":  resolveGit,
+	"gitsrht": resolveGit,
 	"http":    useSameURL,
 	"https":   useSameURL,
 }
 
-func useSameURL(in ChannelInput) (string, error) {
+func useSameURL(ctx context.Context, in ChannelInput) (string, error) {
 	return string(in.URL), nil
-}
-
-func resolveGit(in ChannelInput) (string, error) {
-	u, err := in.URL.Parse()
-	if err != nil {
-		return "", err
-	}
-
-	// Note that we should clarify how not having a version defeats the point of
-	// nix-bonito and is likely a terrible idea in general. It is not
-	// reproducible at all and will just be annoying to the user.
-	if in.Version == "" {
-		return "", errors.New("git used without version, use http(s) instead")
-	}
-
-	switch u.Host {
-	case "github.com":
-		transGitHubURL(in, u)
-	case "gitlab.com":
-		transGitLabURL(in, u)
-	case "git.sr.ht":
-		transSourcehutURL(in, u)
-	default:
-		return "", fmt.Errorf("unknown git service %q, consider using https://", u.Host)
-	}
-
-	return u.String(), nil
-}
-
-func resolveGitHub(in ChannelInput) (string, error) {
-	return resolveServiceURL(in, "github.com", transGitHubURL)
-}
-
-func transGitHubURL(in ChannelInput, u *url.URL) {
-	u.Path += "/archive/" + in.Version + ".tar.gz"
-	u.Scheme = "https"
-}
-
-func resolveGitLab(in ChannelInput) (string, error) {
-	return resolveServiceURL(in, "gitlab.com", transGitLabURL)
-}
-
-func transGitLabURL(in ChannelInput, u *url.URL) {
-	u.Path += fmt.Sprintf("/-/archive/%[1]s/%[2]s-%[1]s.tar.gz", in.Version, path.Base(u.Path))
-	u.Scheme = "https"
-}
-
-func resolveSourcehut(in ChannelInput) (string, error) {
-	return resolveServiceURL(in, "git.sr.ht", transSourcehutURL)
-}
-
-func transSourcehutURL(in ChannelInput, u *url.URL) {
-	u.Path += "/archive/" + in.Version + ".tar.gz"
-	u.Scheme = "https"
-}
-
-func resolveServiceURL(in ChannelInput, host string, transformer func(ChannelInput, *url.URL)) (string, error) {
-	u, err := in.URL.Parse()
-	if err != nil {
-		return "", err
-	}
-
-	if u.Opaque != "" {
-		u.Host = host
-		u.Path = u.Opaque
-		u.Opaque = ""
-	}
-
-	transformer(in, u)
-	return u.String(), err
-}
-
-func popHost(opaque string) (string, string) {
-	parts := strings.SplitN(opaque, "/", 2)
-	if len(parts) == 1 {
-		return parts[0], ""
-	}
-	return parts[0], parts[1]
 }
 
 type channelExecer struct {
@@ -224,20 +142,6 @@ func newChannelExecer(ctx context.Context, temp bool) *channelExecer {
 		execer.prefix = "bonito-tmp-"
 	}
 	return &execer
-}
-
-func mustHash(inputs ...interface{}) string {
-	h := fnv.New128a()
-
-	for _, in := range inputs {
-		str, ok := in.(string)
-		if !ok {
-			str = fmt.Sprint(in)
-		}
-		h.Write([]byte(str))
-	}
-
-	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
 func (e *channelExecer) isTemp() bool { return e.prefix != "" }
