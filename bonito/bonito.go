@@ -100,11 +100,31 @@ func (s *State) apply(ctx context.Context, username string, usercfg UserConfig) 
 		}
 	}
 
+	if usercfg.OverrideChannels {
+		// Remove old channels first. Nix might add some extra channels, and we
+		// want to keep those.
+		for name := range oldList {
+			_, ok := usercfg.Channels[name]
+			if ok {
+				continue
+			}
+
+			if err := channels.remove(name); err != nil {
+				rollback()
+				return errors.Wrap(err, "cannot remove channel %q for overriding")
+			}
+		}
+	}
+
 	for name, channel := range usercfg.Channels {
 		lock, ok := s.Lock.Channels[channel]
 		if !ok {
-			rollback()
-			return fmt.Errorf("channel %q missing lock", channel)
+			lock, err = resolveChannelLock(ctx, username, usercfg, channel)
+			if err != nil {
+				rollback()
+				return errors.Wrapf(err, "channel %q cannot resolve lock", channel)
+			}
+			s.Lock.Channels[channel] = lock
 		}
 
 		_, err := channels.add(name, lock.URL)

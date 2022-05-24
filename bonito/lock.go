@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path"
 
 	"github.com/diamondburned/nix-bonito/bonito/internal/executil"
 	"github.com/diamondburned/nix-bonito/bonito/internal/nixutil"
@@ -147,4 +148,51 @@ func (u *locksUpdater) add(username string, usercfg UserConfig) (err error) {
 	}
 
 	return nil
+}
+
+func resolveChannelLock(ctx context.Context, username string, usercfg UserConfig, input ChannelInput) (ChannelLock, error) {
+	var lock ChannelLock
+	name := path.Base(string(input.URL))
+
+	storeDir, err := nixutil.StoreDir(ctx)
+	if err != nil {
+		return lock, errors.Wrap(err, "cannot get store directory")
+	}
+
+	ctx = executil.WithOpts(ctx, executil.Opts{
+		Username: username,
+		UseSudo:  usercfg.UseSudo,
+	})
+
+	channels := newChannelExecer(ctx, true)
+	defer channels.rollbackAll()
+
+	url, err := input.Resolve(ctx)
+	if err != nil {
+		return lock, errors.Wrapf(err, "cannot resolve %q", input)
+	}
+
+	tempName, err := channels.add(name, url)
+	if err != nil {
+		return lock, errors.Wrap(err, "cannot add channel")
+	}
+
+	if err := channels.update(tempName); err != nil {
+		return lock, errors.Wrap(err, "cannot update channel")
+	}
+
+	src, err := nixutil.ChannelSourcePath(ctx, tempName)
+	if err != nil {
+		return lock, errors.Wrap(err, "cannot get source path for channel")
+	}
+
+	path, err := nixutil.ParseStorePath(storeDir, src)
+	if err != nil {
+		return lock, errors.Wrap(err, "invalid store path for channel")
+	}
+
+	return ChannelLock{
+		URL:       url,
+		StoreHash: path.Hash,
+	}, nil
 }

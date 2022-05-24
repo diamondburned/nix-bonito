@@ -90,25 +90,18 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	var updatedLocks bool
-
 	if ctx.Bool("update-locks") {
 		if err := state.UpdateLocks(ctx.Context); err != nil {
 			return errors.Wrap(err, "cannot update locks")
 		}
-		updatedLocks = true
 	} else {
-		updateLocks := ctx.Bool("update")
-		if err := state.Apply(ctx.Context, updateLocks); err != nil {
+		if err := state.Apply(ctx.Context, ctx.Bool("update")); err != nil {
 			return errors.Wrap(err, "cannot apply")
 		}
-		updatedLocks = updateLocks
 	}
 
-	if updatedLocks {
-		if err := state.saveLockFile(); err != nil {
-			return errors.Wrap(err, "cannot save lock file")
-		}
+	if err := state.saveLockFile(); err != nil {
+		return errors.Wrap(err, "cannot save lock file")
 	}
 
 	return nil
