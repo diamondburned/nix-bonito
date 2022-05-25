@@ -3,22 +3,29 @@
 `bonito` is a declarative Nix channels manager. It is written to replace some of
 Flakes' features.
 
-## Usage
+## Install
 
-To be implemented.
+```sh
+go install github.com/diamondburned/nix-bonito/cmd/bonito@latest
+```
+
+## Usage
 
 `bonito` is meant to be used with a VCS such as Git. As a result, changes to the
 configuration file and its checksum files should be committed so that they can
 be rolled back using the VCS.
 
 ```sh
-# Initialize with an existing config and lock file.
+# Initialize and update with an existing config.
 bonito # uses $HOSTNAME.toml, OR
 bonito -c hackadoll3.toml
 
-# Initialize and update the lock file. Run this if $HOSTNAME.toml is modified.
+# Update channels that are referenced as branches (refs), such as
+# "github:NixOS/nixpkgs nixos-unstable".
 bonito -u
 ```
+
+For an example configuration, see the [Example file](./example/hackadoll3.toml).
 
 ## Why not Flakes?
 
