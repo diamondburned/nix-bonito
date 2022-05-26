@@ -55,12 +55,19 @@ type UserConfig struct {
 	OverrideChannels bool `toml:"override-channels"`
 	// Channels maps the channel names to its respective input strings.
 	Channels map[string]ChannelInput `toml:"channels"`
+	// Aliases maps a channel name to another channel name as aliases. The
+	// aliasing channel will have the same channel input as the aliased.
+	Aliases map[string]string `toml:"aliases"`
 }
 
-/// ChannelNames returns the sorted list of channel names inside the user config.
+/// ChannelNames returns the sorted list of channel names inside the user
+//config.
 func (cfg UserConfig) ChannelNames() []string {
-	names := make([]string, 0, len(cfg.Channels))
+	names := make([]string, 0, len(cfg.Channels)+len(cfg.Aliases))
 	for name := range cfg.Channels {
+		names = append(names, name)
+	}
+	for name := range cfg.Aliases {
 		names = append(names, name)
 	}
 	sort.Strings(names)

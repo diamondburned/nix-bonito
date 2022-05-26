@@ -116,7 +116,20 @@ func (s *State) apply(ctx context.Context, username string, usercfg UserConfig) 
 		}
 	}
 
+	channelInputs := make(map[string]ChannelInput, len(usercfg.Channels)+len(usercfg.Aliases))
 	for name, channel := range usercfg.Channels {
+		channelInputs[name] = channel
+	}
+
+	for alias, name := range usercfg.Aliases {
+		in, ok := channelInputs[name]
+		if !ok {
+			return fmt.Errorf("alias %q references unknown channel %q", alias, name)
+		}
+		channelInputs[alias] = in
+	}
+
+	for name, channel := range channelInputs {
 		lock, ok := s.Lock.Channels[channel]
 		if !ok {
 			lock, err = resolveChannelLock(ctx, username, usercfg, channel)

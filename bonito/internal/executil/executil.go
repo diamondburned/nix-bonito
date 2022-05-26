@@ -3,6 +3,7 @@ package executil
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -83,15 +84,17 @@ func Exec(ctx context.Context, out *string, arg0 string, argv ...string) error {
 		defer func() { *out = outbuf.String() }()
 	}
 
+	var stderr strings.Builder
 	if isVerbose(ctx) {
-		cmd.Stderr = os.Stderr
+		cmd.Stderr = io.MultiWriter(&stderr, os.Stderr)
 		log.Printf("user %q: running command %q", o.Username, append([]string{arg0}, argv...))
+	} else {
+		cmd.Stderr = &stderr
 	}
 
 	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return fmt.Errorf("%s: %s", arg0, exitErr.Stderr)
+		if stderr.Len() > 0 {
+			return fmt.Errorf("%s exited status %d: %s", arg0, cmd.ProcessState.ExitCode(), &stderr)
 		}
 		return err
 	}
