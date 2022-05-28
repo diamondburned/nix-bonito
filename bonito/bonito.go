@@ -129,6 +129,12 @@ func (s *State) apply(ctx context.Context, username string, usercfg UserConfig) 
 		channelInputs[alias] = in
 	}
 
+	// If this map is nil, then we're expecting the next loop to populate
+	// everything.
+	if s.Lock.Channels == nil {
+		s.Lock.Channels = make(map[ChannelInput]ChannelLock, len(channelInputs))
+	}
+
 	for name, channel := range channelInputs {
 		lock, ok := s.Lock.Channels[channel]
 		if !ok {
