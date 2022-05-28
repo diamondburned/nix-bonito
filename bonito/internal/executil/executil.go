@@ -54,16 +54,7 @@ func OptsFromContext(ctx context.Context) Opts {
 func Exec(ctx context.Context, out *string, arg0 string, argv ...string) error {
 	o := OptsFromContext(ctx)
 
-	// Trust $USER more. See https://golang.org/issue/38599.
-	currentUser := os.Getenv("USER")
-	if currentUser == "" {
-		u, err := user.Current()
-		if err != nil {
-			return errors.Wrap(err, "cannot get current user")
-		}
-		currentUser = u.Username
-	}
-
+	currentUser := CurrentUser()
 	if o.Username == "" {
 		o.Username = currentUser
 	}
@@ -105,4 +96,27 @@ func Exec(ctx context.Context, out *string, arg0 string, argv ...string) error {
 	}
 
 	return nil
+}
+
+// CurrentUserIs returns true if the given thisUser's name matches the current
+// username.
+func CurrentUserIs(thisUser string) bool {
+	return CurrentUser() == thisUser
+}
+
+// CurrentUser gets the current user's name. If it fails, then a panic is
+// thrown.
+func CurrentUser() string {
+	// Trust $USER more. See https://golang.org/issue/38599.
+	currentUser := os.Getenv("USER")
+	if currentUser != "" {
+		return currentUser
+	}
+
+	u, err := user.Current()
+	if err != nil {
+		panic(errors.Wrap(err, "cannot get current user"))
+	}
+
+	return u.Username
 }

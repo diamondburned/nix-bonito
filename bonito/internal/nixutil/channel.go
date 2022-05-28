@@ -2,6 +2,7 @@ package nixutil
 
 import (
 	"context"
+	"os"
 	"os/user"
 	"path/filepath"
 
@@ -14,22 +15,27 @@ import (
 func ChannelSourcePath(ctx context.Context, channelName string) (string, error) {
 	o := executil.OptsFromContext(ctx)
 
-	var u *user.User
+	var homeDir string
 	var err error
 
-	if o.Username != "" {
-		u, err = user.Lookup(o.Username)
+	if o.Username == "" || executil.CurrentUserIs(o.Username) {
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			u, err := user.Current()
+			if err != nil {
+				return "", errors.Wrap(err, "cannot get current user")
+			}
+			homeDir = u.HomeDir
+		}
+	} else {
+		u, err := user.Lookup(o.Username)
 		if err != nil {
 			return "", errors.Wrapf(err, "cannot lookup user %q", o.Username)
 		}
-	} else {
-		u, err = user.Current()
-		if err != nil {
-			return "", errors.Wrap(err, "cannot get current user")
-		}
+		homeDir = u.HomeDir
 	}
 
-	defexpr := filepath.Join(u.HomeDir, ".nix-defexpr", "channels", channelName)
+	defexpr := filepath.Join(homeDir, ".nix-defexpr", "channels", channelName)
 
 	var out string
 	// Use Exec so sudo works.
