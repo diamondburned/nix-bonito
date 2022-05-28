@@ -54,17 +54,22 @@ func OptsFromContext(ctx context.Context) Opts {
 func Exec(ctx context.Context, out *string, arg0 string, argv ...string) error {
 	o := OptsFromContext(ctx)
 
-	u, err := user.Current()
-	if err != nil {
-		return errors.Wrap(err, "cannot get current user")
+	// Trust $USER more. See https://golang.org/issue/38599.
+	currentUser := os.Getenv("USER")
+	if currentUser == "" {
+		u, err := user.Current()
+		if err != nil {
+			return errors.Wrap(err, "cannot get current user")
+		}
+		currentUser = u.Username
 	}
 
 	if o.Username == "" {
-		o.Username = u.Username
+		o.Username = currentUser
 	}
 
 	var cmd *exec.Cmd
-	if u.Username == o.Username {
+	if o.Username == currentUser {
 		cmd = exec.CommandContext(ctx, arg0, argv...)
 	} else {
 		if !o.UseSudo {
