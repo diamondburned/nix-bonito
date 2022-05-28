@@ -49,3 +49,17 @@ list of quirks that I don't like about Flakes include:
   tools have lots of quirks, many of which makes it barely usable.
 - Flakes caused an infinite recursion error on my config for very mysterious
   reasons. Writing `bonito` took me less time than debugging that error.
+
+## Known Quirks
+
+**Error: cannot resolve lock: error reading symbolic link '...nixpkgs'**
+
+Some channels, such as Home Manager, have a dependency on Nixpkgs. When `bonito`
+starts without a `.lock` file, it must add a channel to resolve it, then remove
+it. Home Manager cannot be added and updated without Nixpkgs, however, and there
+is no way to keep the order of the channel list to express dependency, so this
+use case is not supported at all.
+
+A workaround is to run `bonito` on a setup with the `nixos` or `nixpkgs`
+channel, then set `override-channels = false` first. Once the `.lock` file is
+generated, `override-channels` can be set to true.
