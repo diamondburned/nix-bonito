@@ -43,9 +43,10 @@ func main() {
 	}()
 
 	app := cli.App{
-		Name:   "bonito",
-		Usage:  "Declarative Nix channel manager",
-		Action: run,
+		Name:      "bonito",
+		Usage:     "Declarative Nix channel manager",
+		Action:    run,
+		ArgsUsage: "[channels...]",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "update",
@@ -90,14 +91,46 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	if ctx.Bool("update-locks") {
-		if err := state.UpdateLocks(ctx.Context); err != nil {
+	if ctx.Bool("update") {
+		newState := bonito.State{
+			Config: state.Config,
+			Lock:   state.Lock,
+		}
+
+		channels := ctx.Args().Slice()
+		if len(channels) > 0 {
+			newState.Config = state.Config.FilterChannels(channels)
+		}
+
+		var channelCount int
+		for _, usercfg := range state.Config {
+			channelCount += len(usercfg.Channels)
+			for name := range usercfg.Channels {
+				log.Println("will update channel", name)
+			}
+		}
+
+		if channelCount == 0 {
+			log.Println("no channels to update")
+			return nil
+		}
+
+		if err := newState.UpdateLocks(ctx.Context); err != nil {
 			return errors.Wrap(err, "cannot update locks")
 		}
-	} else {
-		if err := state.Apply(ctx.Context, ctx.Bool("update")); err != nil {
-			return errors.Wrap(err, "cannot apply")
+
+		if ctx.Bool("update-locks") {
+			return nil
 		}
+
+		// Update the actual lock state.
+		state.Lock = newState.Lock
+	}
+
+	log.Println("applying channels...")
+
+	if err := state.Apply(ctx.Context); err != nil {
+		return errors.Wrap(err, "cannot apply")
 	}
 
 	if err := state.saveLockFile(); err != nil {

@@ -18,6 +18,13 @@ type LockFile struct {
 	Channels map[ChannelInput]ChannelLock `json:"channels"`
 }
 
+// Update updates the lock file to have hashes from the given LockFile.
+func (l *LockFile) Update(newer LockFile) {
+	for channel, lock := range newer.Channels {
+		l.Channels[channel] = lock
+	}
+}
+
 // ChannelLock describes the locking checksums for a single channel.
 type ChannelLock struct {
 	// URL is the resolved channel URL that's used for Nix. This URL must always
@@ -83,10 +90,10 @@ func newLocksUpdater(ctx context.Context) (*locksUpdater, error) {
 	}, nil
 }
 
-func (u *locksUpdater) add(username string, usercfg UserConfig) (err error) {
+func (u *locksUpdater) add(username string, channelInputs map[string]ChannelInput, sudo bool) (err error) {
 	ctx := executil.WithOpts(u.ctx, executil.Opts{
 		Username: username,
-		UseSudo:  usercfg.UseSudo,
+		UseSudo:  sudo,
 	})
 
 	channels := newChannelExecer(ctx, true)
@@ -101,10 +108,10 @@ func (u *locksUpdater) add(username string, usercfg UserConfig) (err error) {
 		url  string
 	}
 
-	added := make(map[ChannelInput]addedCh, len(usercfg.Channels))
-	names := make([]string, 0, len(usercfg.Channels))
+	added := make(map[ChannelInput]addedCh, len(channelInputs))
+	names := make([]string, 0, len(channelInputs))
 
-	for name, input := range usercfg.Channels {
+	for name, input := range channelInputs {
 		if _, ok := u.locks[input]; ok {
 			continue
 		}

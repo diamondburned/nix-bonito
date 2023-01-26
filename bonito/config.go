@@ -25,6 +25,16 @@ func NewConfigFromReader(r io.Reader) (Config, error) {
 	return cfg, nil
 }
 
+// FilterChannels returns a new UserConfig with only the channels that are
+// present in the given names.
+func (cfg Config) FilterChannels(names []string) Config {
+	filtered := make(Config, len(cfg))
+	for username, usercfg := range cfg {
+		filtered[username] = usercfg.FilterChannels(names)
+	}
+	return filtered
+}
+
 // CreateLockFile creates a new LockFile using the channels inside the current
 // config.
 func (cfg Config) CreateLockFile(ctx context.Context) (LockFile, error) {
@@ -34,7 +44,7 @@ func (cfg Config) CreateLockFile(ctx context.Context) (LockFile, error) {
 	}
 
 	for username, usercfg := range cfg {
-		if err := updater.add(username, usercfg); err != nil {
+		if err := updater.add(username, usercfg.Channels, usercfg.UseSudo); err != nil {
 			return LockFile{}, errors.Wrapf(err, "cannot update locks for user %q", username)
 		}
 	}
@@ -72,4 +82,27 @@ func (cfg UserConfig) ChannelNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// FilterChannels returns a new UserConfig with only the channels that are
+// present in the given names.
+func (cfg UserConfig) FilterChannels(names []string) UserConfig {
+	filteredChannels := make(map[string]ChannelInput, len(cfg.Channels))
+	for _, name := range names {
+		if ch, ok := cfg.Channels[name]; ok {
+			filteredChannels[name] = ch
+		}
+	}
+
+	filteredAliases := make(map[string]string, len(cfg.Aliases))
+	for _, name := range names {
+		if alias, ok := cfg.Aliases[name]; ok {
+			filteredAliases[name] = alias
+		}
+	}
+
+	newer := cfg
+	newer.Channels = filteredChannels
+	newer.Aliases = filteredAliases
+	return newer
 }

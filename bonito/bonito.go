@@ -60,13 +60,7 @@ type State struct {
 }
 
 // Apply applies the state onto the current system.
-func (s *State) Apply(ctx context.Context, update bool) error {
-	if update {
-		if err := s.UpdateLocks(ctx); err != nil {
-			return err
-		}
-	}
-
+func (s *State) Apply(ctx context.Context) error {
 	for username, usercfg := range s.Config {
 		if err := s.apply(ctx, username, usercfg); err != nil {
 			return errors.Wrapf(err, "cannot apply for user %q", username)
@@ -122,12 +116,12 @@ func (s *State) apply(ctx context.Context, username string, usercfg UserConfig) 
 	// Resolve channels with missing locks before moving on to removing the old
 	// channels and adding new ones.
 	for _, channel := range channelInputs {
-		lock, ok := s.Lock.Channels[channel]
+		_, ok := s.Lock.Channels[channel]
 		if ok {
 			continue
 		}
 
-		lock, err = resolveChannelLock(ctx, username, usercfg, channel)
+		lock, err := resolveChannelLock(ctx, username, usercfg, channel)
 		if err != nil {
 			rollback()
 			return errors.Wrapf(err, "channel %q cannot resolve lock", channel)
@@ -155,6 +149,7 @@ func (s *State) apply(ctx context.Context, username string, usercfg UserConfig) 
 	for name, channel := range channelInputs {
 		lock, ok := s.Lock.Channels[channel]
 		if !ok {
+			continue
 		}
 
 		_, err := channels.add(name, lock.URL)
@@ -181,6 +176,6 @@ func (s *State) UpdateLocks(ctx context.Context) error {
 		return err
 	}
 
-	s.Lock = newLock
+	s.Lock.Update(newLock)
 	return nil
 }
