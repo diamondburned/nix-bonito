@@ -103,7 +103,7 @@ func run(ctx *cli.Context) error {
 		}
 
 		var channelCount int
-		for _, usercfg := range state.Config {
+		for _, usercfg := range newState.Config {
 			channelCount += len(usercfg.Channels)
 			for name := range usercfg.Channels {
 				log.Println("will update channel", name)
