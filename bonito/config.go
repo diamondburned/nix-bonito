@@ -1,9 +1,7 @@
 package bonito
 
 import (
-	"context"
 	"io"
-	"sort"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/pkg/errors"
@@ -11,47 +9,72 @@ import (
 
 // Config is the root structure of the host configuration file. It maps the
 // usernames to their corresponding config.
-type Config map[Username]UserConfig
+type Config struct {
+	// Global is the global channels.
+	Global struct {
+		// PreferredUser is the preferred user to use for nix-channel invocations.
+		// If this is empty, then it will be picked automatically.
+		PreferredUser string `toml:"preferred_user,omitempty"`
+		ChannelRegistry
+	} `toml:"global"`
+
+	// Flakes is the flakes channels.
+	Flakes struct {
+		Enable bool `toml:"enable"`
+		ChannelRegistry
+	} `toml:"flakes"`
+
+	// Users maps the usernames to their respective UserConfig.
+	Users map[Username]UserConfig `toml:"users"`
+}
 
 // NewConfigFromReader creates a new Config by decoding the given reader as a
 // TOML file.
 func NewConfigFromReader(r io.Reader) (Config, error) {
 	var cfg Config
-
-	if err := toml.NewDecoder(r).Decode(&cfg); err != nil {
-		return nil, err
-	}
-
-	return cfg, nil
+	err := toml.NewDecoder(r).Decode(&cfg)
+	return cfg, err
 }
 
-// FilterChannels returns a new UserConfig with only the channels that are
-// present in the given names.
-func (cfg Config) FilterChannels(names []string) Config {
-	filtered := make(Config, len(cfg))
-	for username, usercfg := range cfg {
-		filtered[username] = usercfg.FilterChannels(names)
-	}
-	return filtered
-}
-
-// CreateLockFile creates a new LockFile using the channels inside the current
-// config.
-func (cfg Config) CreateLockFile(ctx context.Context) (LockFile, error) {
-	updater, err := newLocksUpdater(ctx)
-	if err != nil {
-		return LockFile{}, err
+// ChannelInputs returns all channel inputs within the current config.
+func (cfg Config) ChannelInputs() map[ChannelInput]struct{} {
+	inputsLen := len(cfg.Global.Channels) + len(cfg.Flakes.Channels)
+	for _, usercfg := range cfg.Users {
+		inputsLen += len(usercfg.Channels)
 	}
 
-	for username, usercfg := range cfg {
-		if err := updater.add(username, usercfg.Channels, usercfg.UseSudo); err != nil {
-			return LockFile{}, errors.Wrapf(err, "cannot update locks for user %q", username)
+	inputsSet := make(map[ChannelInput]struct{}, inputsLen)
+	for _, input := range cfg.Global.Channels {
+		inputsSet[input] = struct{}{}
+	}
+
+	for _, input := range cfg.Flakes.Channels {
+		inputsSet[input] = struct{}{}
+	}
+
+	for _, usercfg := range cfg.Users {
+		for _, input := range usercfg.Channels {
+			inputsSet[input] = struct{}{}
 		}
 	}
 
-	return LockFile{
-		Channels: updater.locks,
-	}, nil
+	return inputsSet
+}
+
+// FilterChannels returns a new Config with only the channels that are
+// present in the given names.
+func (cfg Config) FilterChannels(names []string) Config {
+	cfg.Global.ChannelRegistry = cfg.Global.ChannelRegistry.FilterChannels(names)
+	cfg.Flakes.ChannelRegistry = cfg.Flakes.ChannelRegistry.FilterChannels(names)
+
+	users := cfg.Users
+	cfg.Users = make(map[Username]UserConfig, len(users))
+	for username, usercfg := range users {
+		usercfg.ChannelRegistry = usercfg.ChannelRegistry.FilterChannels(names)
+		cfg.Users[username] = usercfg
+	}
+
+	return cfg
 }
 
 // UserConfig is the structure of the user configuration.
@@ -63,6 +86,12 @@ type UserConfig struct {
 	// OverrideChannels, if true, will cause all channels not defined in the
 	// configuration file to be deleted.
 	OverrideChannels bool `toml:"override-channels"`
+	ChannelRegistry
+}
+
+// ChannelRegistry is a common structure holding configured channels and its
+// aliases.
+type ChannelRegistry struct {
 	// Channels maps the channel names to its respective input strings.
 	Channels map[string]ChannelInput `toml:"channels"`
 	// Aliases maps a channel name to another channel name as aliases. The
@@ -70,38 +99,51 @@ type UserConfig struct {
 	Aliases map[string]string `toml:"aliases"`
 }
 
-/// ChannelNames returns the sorted list of channel names inside the user
-//config.
-func (cfg UserConfig) ChannelNames() []string {
-	names := make([]string, 0, len(cfg.Channels)+len(cfg.Aliases))
-	for name := range cfg.Channels {
-		names = append(names, name)
+// CombineChannelRegistries combines the given ChannelRegistries into a single
+// channel input map. It also resolves the aliases. Channels defined later in
+// the list will override the ones defined earlier.
+func CombineChannelRegistries(registries []ChannelRegistry) (map[string]ChannelInput, error) {
+	channelInputs := make(map[string]ChannelInput)
+	for _, registry := range registries {
+		for name, input := range registry.Channels {
+			channelInputs[name] = input
+		}
+
+		for name, alias := range registry.Aliases {
+			input, ok := channelInputs[alias]
+			if !ok {
+				return nil, errors.Errorf("unknown channel alias %q", alias)
+			}
+			channelInputs[name] = input
+		}
 	}
-	for name := range cfg.Aliases {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+
+	return channelInputs, nil
 }
 
-// FilterChannels returns a new UserConfig with only the channels that are
+// FilterChannels returns a new ChannelRegistry with only the channels that are
 // present in the given names.
-func (cfg UserConfig) FilterChannels(names []string) UserConfig {
-	filteredChannels := make(map[string]ChannelInput, len(cfg.Channels))
+func (r ChannelRegistry) FilterChannels(names []string) ChannelRegistry {
+	filteredChannels := make(map[string]ChannelInput, len(r.Channels))
 	for _, name := range names {
-		if ch, ok := cfg.Channels[name]; ok {
+		if ch, ok := r.Channels[name]; ok {
 			filteredChannels[name] = ch
+			continue
 		}
 	}
 
-	filteredAliases := make(map[string]string, len(cfg.Aliases))
+	filteredAliases := make(map[string]string, len(r.Aliases))
 	for _, name := range names {
-		if alias, ok := cfg.Aliases[name]; ok {
+		if alias, ok := r.Aliases[name]; ok {
 			filteredAliases[name] = alias
+			// Also include the channel that the alias points to.
+			if _, ok := filteredChannels[alias]; !ok {
+				filteredChannels[alias] = r.Channels[alias]
+			}
 		}
 	}
 
-	newer := cfg
+	newer := r
 	newer.Channels = filteredChannels
 	newer.Aliases = filteredAliases
 	return newer

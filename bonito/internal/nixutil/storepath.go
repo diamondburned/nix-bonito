@@ -2,6 +2,8 @@ package nixutil
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -24,13 +26,47 @@ type StorePath struct {
 	Hash StoreHash
 }
 
-// ParseStorePath parses the given path within the root directory as a Nix
-// StorePath. If root is empty, then /nix/store is implied.
-func ParseStorePath(root, path string) (StorePath, error) {
-	if root == "" {
-		root = "/nix/store"
+// LocatePath locates the Nix store directory matching the given hash.
+func LocatePath(hash StoreHash) (StorePath, error) {
+	storeDir, err := StoreDir()
+	if err != nil {
+		return StorePath{}, errors.Wrap(err, "failed to get store dir")
 	}
 
+	return LocatePathWithRoot(storeDir, hash)
+}
+
+// LocatePathWithRoot locates the Nix store directory matching the given hash
+// within the given root directory.
+func LocatePathWithRoot(root string, hash StoreHash) (StorePath, error) {
+	files, err := fs.ReadDir(os.DirFS(root), ".")
+	if err != nil {
+		return StorePath{}, errors.Wrap(err, "failed to read root store directory")
+	}
+
+	hashPrefix := hash + "-"
+	for _, file := range files {
+		if strings.HasPrefix(file.Name(), string(hashPrefix)) {
+			return ParseStorePathWithRoot(root, filepath.Join(root, file.Name()))
+		}
+	}
+
+	return StorePath{}, fmt.Errorf("no store path found for hash %q", hash)
+}
+
+// ParseStorePath parses the given path within /nix/store as a Nix StorePath.
+func ParseStorePath(path string) (StorePath, error) {
+	storeDir, err := StoreDir()
+	if err != nil {
+		return StorePath{}, errors.Wrap(err, "failed to get store dir")
+	}
+
+	return ParseStorePathWithRoot(storeDir, path)
+}
+
+// ParseStorePathWithRoot parses the given path within the root directory as a
+// Nix StorePath.
+func ParseStorePathWithRoot(root, path string) (StorePath, error) {
 	var storePath StorePath
 
 	name, err := filepath.Rel(root, path)

@@ -1,0 +1,82 @@
+{
+  "bonito:home-manager": {
+    "from": {
+      "type": "indirect",
+      "id": "home-manager"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/f8k2riglpzgd1g1i2505s37h5cw1f8qn-bonito-tmp-home-manager_unstable/bonito-tmp-home-manager_unstable"
+    }
+  },
+  "bonito:home-manager_21_11": {
+    "from": {
+      "type": "indirect",
+      "id": "home-manager_21_11"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/93px0kqyxnxmjpbv4f19myaryzny9b1y-bonito-tmp-home-manager_unstable/bonito-tmp-home-manager_unstable"
+    }
+  },
+  "bonito:home-manager_unstable": {
+    "from": {
+      "type": "indirect",
+      "id": "home-manager_unstable"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/f8k2riglpzgd1g1i2505s37h5cw1f8qn-bonito-tmp-home-manager_unstable/bonito-tmp-home-manager_unstable"
+    }
+  },
+  "bonito:nixos": {
+    "from": {
+      "type": "indirect",
+      "id": "nixos"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/lp5b28hbyn1g51162bx13742y0x4ghza-bonito-tmp-nixpkgs_unstable_newer/bonito-tmp-nixpkgs_unstable_newer"
+    }
+  },
+  "bonito:nixpkgs": {
+    "from": {
+      "type": "indirect",
+      "id": "nixpkgs"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/lp5b28hbyn1g51162bx13742y0x4ghza-bonito-tmp-nixpkgs_unstable_newer/bonito-tmp-nixpkgs_unstable_newer"
+    }
+  },
+  "bonito:nixpkgs_unstable": {
+    "from": {
+      "type": "indirect",
+      "id": "nixpkgs_unstable"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/lp5b28hbyn1g51162bx13742y0x4ghza-bonito-tmp-nixpkgs_unstable_newer/bonito-tmp-nixpkgs_unstable_newer"
+    }
+  },
+  "bonito:nixpkgs_unstable_newer": {
+    "from": {
+      "type": "indirect",
+      "id": "nixpkgs_unstable_newer"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/lp5b28hbyn1g51162bx13742y0x4ghza-bonito-tmp-nixpkgs_unstable_newer/bonito-tmp-nixpkgs_unstable_newer"
+    }
+  },
+  "bonito:nixpkgs_unstable_older": {
+    "from": {
+      "type": "indirect",
+      "id": "nixpkgs_unstable_older"
+    },
+    "to": {
+      "type": "path",
+      "path": "/nix/store/9mzkgbpysbyi6hpccw6xpkc59cziyb4w-bonito-tmp-nixpkgs_unstable_older/bonito-tmp-nixpkgs_unstable_older"
+    }
+  }
+}

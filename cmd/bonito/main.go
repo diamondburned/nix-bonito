@@ -70,7 +70,11 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:  "lock-file",
-				Usage: "manual path to the lock file, or {config}.lock if empty",
+				Usage: "manual path to the lock file, or {config}.lock.json if empty",
+			},
+			&cli.StringFlag{
+				Name:  "nix-registry-file",
+				Usage: "path to the nix registry JSON file, or {config}.registry.json if empty",
 			},
 		},
 	}
@@ -102,14 +106,7 @@ func run(ctx *cli.Context) error {
 			newState.Config = state.Config.FilterChannels(channels)
 		}
 
-		var channelCount int
-		for _, usercfg := range newState.Config {
-			channelCount += len(usercfg.Channels)
-			for name := range usercfg.Channels {
-				log.Println("will update channel", name)
-			}
-		}
-
+		channelCount := recordChannels(newState)
 		if channelCount == 0 {
 			log.Println("no channels to update")
 			return nil
@@ -133,9 +130,35 @@ func run(ctx *cli.Context) error {
 		return errors.Wrap(err, "cannot apply")
 	}
 
+	if state.Config.Flakes.Enable {
+		if err := state.saveNixRegistryFile(); err != nil {
+			return errors.Wrap(err, "cannot save nix registry file")
+		}
+	}
+
 	if err := state.saveLockFile(); err != nil {
 		return errors.Wrap(err, "cannot save lock file")
 	}
 
 	return nil
+}
+
+func recordChannels(state bonito.State) int {
+	var channelCount int
+
+	for name := range state.Config.Global.Channels {
+		log.Print("will update channel global.", name)
+	}
+
+	for name := range state.Config.Flakes.Channels {
+		log.Print("will update channel flakes.", name)
+	}
+
+	for username, usercfg := range state.Config.Users {
+		for name := range usercfg.Channels {
+			log.Printf("will update channel users.%s.%s", username, name)
+		}
+	}
+
+	return channelCount
 }

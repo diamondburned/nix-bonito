@@ -21,7 +21,7 @@ func TestParseStorePath(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.want.Name(), func(t *testing.T) {
-			p, err := ParseStorePath(test.root, test.path)
+			p, err := ParseStorePathWithRoot(test.root, test.path)
 			if err != nil {
 				t.Fatalf("error parsing %q: %v", test.path, err)
 			}

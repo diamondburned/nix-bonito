@@ -1,6 +1,7 @@
 package bonito
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestResolveGit(t *testing.T) {
 				t.Fatal("cannot parse channel input:", err)
 			}
 
-			resolvedURL, err := input.Resolve()
+			resolvedURL, err := input.Resolve(context.Background())
 			if err != nil {
 				t.Fatalf("cannot resolve %q: %v", input.URL, err)
 			}

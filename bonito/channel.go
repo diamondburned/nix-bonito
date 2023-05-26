@@ -131,20 +131,27 @@ func useSameURL(ctx context.Context, in ChannelInput) (string, error) {
 }
 
 type channelExecer struct {
-	ctx     context.Context
-	prefix  string
-	updated int
+	ctx    context.Context
+	prefix string
 }
+
+const channelPrefix = "bonito-"
 
 func newChannelExecer(ctx context.Context, temp bool) *channelExecer {
 	execer := channelExecer{ctx: ctx}
 	if temp {
-		execer.prefix = "bonito-tmp-"
+		execer.prefix = channelPrefix
 	}
 	return &execer
 }
 
 func (e *channelExecer) isTemp() bool { return e.prefix != "" }
+
+func (e *channelExecer) withContext(ctx context.Context) *channelExecer {
+	c := *e
+	c.ctx = ctx
+	return &c
+}
 
 func (e *channelExecer) add(name, url string) (string, error) {
 	name = e.prefix + name
@@ -156,11 +163,7 @@ func (e *channelExecer) remove(name string) error {
 }
 
 func (e *channelExecer) update(names ...string) error {
-	if err := e.exec(append([]string{"--update"}, names...)...); err != nil {
-		return err
-	}
-	e.updated++
-	return nil
+	return e.exec(append([]string{"--update"}, names...)...)
 }
 
 // list retrieves a map of channel name to URLs.
@@ -183,6 +186,19 @@ func (e *channelExecer) list() (map[string]string, error) {
 			return nil, fmt.Errorf("cannot parse line %q", line)
 		}
 
+		if e.isTemp() {
+			// If we're listing temporary channels, only list those that start
+			// with the prefix.
+			if !strings.HasPrefix(parts[0], e.prefix) {
+				continue
+			}
+		} else {
+			// If we're listing all channels, skip temporary ones.
+			if strings.HasPrefix(parts[0], channelPrefix) {
+				continue
+			}
+		}
+
 		list[parts[0]] = parts[1]
 	}
 
@@ -193,18 +209,9 @@ func (e *channelExecer) rollback() error {
 	return e.exec("--rollback")
 }
 
-// rollbackAll rolls back as much as possible that's done by us. It only works
-// if temp is true.
-func (e *channelExecer) rollbackAll() error {
+func (e *channelExecer) removeAll() error {
 	if !e.isTemp() {
 		panic("rollbackAll erroneously called on not-temp channelExecer")
-	}
-
-	for e.updated > 0 {
-		if err := e.rollback(); err != nil {
-			return errors.Wrapf(err, "cannot rollback update %d", e.updated)
-		}
-		e.updated--
 	}
 
 	list, err := e.list()
@@ -218,7 +225,7 @@ func (e *channelExecer) rollbackAll() error {
 		}
 
 		if err := e.exec("--remove", name); err != nil {
-			return errors.Wrapf(err, "cannot rollback channel %q", name)
+			return errors.Wrapf(err, "cannot remove channel %q", name)
 		}
 	}
 

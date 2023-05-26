@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"path"
+	"sync"
 
-	"github.com/diamondburned/nix-bonito/bonito/internal/executil"
 	"github.com/diamondburned/nix-bonito/bonito/internal/nixutil"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 // LockFile describes a file containing hashes (or checksums) of the channels
@@ -64,44 +65,29 @@ func (l LockFile) Eq(old LockFile) bool {
 	return true
 }
 
-// WriteTo writes the LockFile as a JSON file to the given writer.
-func (l LockFile) WriteTo(w io.Writer) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(l)
+// String formats the LockFile as a pretty JSON string.
+func (l LockFile) String() string {
+	b, err := json.MarshalIndent(l, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
 }
 
 type locksUpdater struct {
-	ctx      context.Context
-	locks    map[ChannelInput]ChannelLock
-	storeDir string
+	ctx   context.Context
+	locks map[ChannelInput]ChannelLock
 }
 
 func newLocksUpdater(ctx context.Context) (*locksUpdater, error) {
-	storeDir, err := nixutil.StoreDir(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot get store directory")
-	}
-
 	return &locksUpdater{
-		ctx:      ctx,
-		locks:    make(map[ChannelInput]ChannelLock, 10),
-		storeDir: storeDir,
+		ctx:   ctx,
+		locks: make(map[ChannelInput]ChannelLock, 10),
 	}, nil
 }
 
-func (u *locksUpdater) add(username string, channelInputs map[string]ChannelInput, sudo bool) (err error) {
-	ctx := executil.WithOpts(u.ctx, executil.Opts{
-		Username: username,
-		UseSudo:  sudo,
-	})
-
-	channels := newChannelExecer(ctx, true)
-	defer func() {
-		if e := channels.rollbackAll(); e != nil {
-			err = e
-		}
-	}()
+func (u *locksUpdater) add(channelInputs map[string]ChannelInput) (err error) {
+	channels := newChannelExecer(u.ctx, true)
 
 	type addedCh struct {
 		name string
@@ -116,7 +102,7 @@ func (u *locksUpdater) add(username string, channelInputs map[string]ChannelInpu
 			continue
 		}
 
-		url, err := input.Resolve(ctx)
+		url, err := input.Resolve(u.ctx)
 		if err != nil {
 			return errors.Wrapf(err, "cannot resolve %q", input)
 		}
@@ -138,12 +124,12 @@ func (u *locksUpdater) add(username string, channelInputs map[string]ChannelInpu
 	}
 
 	for input, add := range added {
-		src, err := nixutil.ChannelSourcePath(ctx, add.name)
+		src, err := nixutil.ChannelSourcePath(u.ctx, add.name)
 		if err != nil {
 			return errors.Wrapf(err, "cannot get source path for channel %q", input)
 		}
 
-		path, err := nixutil.ParseStorePath(u.storeDir, src)
+		path, err := nixutil.ParseStorePath(src)
 		if err != nil {
 			return errors.Wrapf(err, "invalid store path for channel %q", input)
 		}
@@ -157,49 +143,90 @@ func (u *locksUpdater) add(username string, channelInputs map[string]ChannelInpu
 	return nil
 }
 
-func resolveChannelLock(ctx context.Context, username string, usercfg UserConfig, input ChannelInput) (ChannelLock, error) {
-	var lock ChannelLock
-	name := path.Base(string(input.URL))
+func resolveInputs(ctx context.Context, inputs map[ChannelInput]struct{}) (map[ChannelInput]string, error) {
+	urls := make(map[ChannelInput]string, len(inputs))
 
-	storeDir, err := nixutil.StoreDir(ctx)
-	if err != nil {
-		return lock, errors.Wrap(err, "cannot get store directory")
+	var mu sync.Mutex
+	errg, ctx := errgroup.WithContext(ctx)
+
+	for input := range inputs {
+		input := input
+
+		errg.Go(func() error {
+			url, err := input.Resolve(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "cannot resolve %q", input)
+			}
+
+			mu.Lock()
+			urls[input] = url
+			mu.Unlock()
+
+			return nil
+		})
 	}
 
-	ctx = executil.WithOpts(ctx, executil.Opts{
-		Username: username,
-		UseSudo:  usercfg.UseSudo,
-	})
+	if err := errg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return urls, nil
+}
+
+func resolveChannelLocks(ctx context.Context, inputs map[ChannelInput]struct{}) (map[ChannelInput]ChannelLock, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+
+	urls, err := resolveInputs(ctx, inputs)
+	if err != nil {
+		return nil, err
+	}
+
+	locks := make(map[ChannelInput]ChannelLock, len(inputs))
 
 	channels := newChannelExecer(ctx, true)
-	defer channels.rollbackAll()
+	channelURLs := make(map[string]ChannelInput, len(inputs))
+	channelNames := make([]string, 0, len(inputs))
 
-	url, err := input.Resolve(ctx)
-	if err != nil {
-		return lock, errors.Wrapf(err, "cannot resolve %q", input)
+	for input := range inputs {
+		name := path.Base(string(input.URL))
+		url := urls[input]
+
+		tempName, err := channels.add(name, url)
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot add channel")
+		}
+
+		channelURLs[tempName] = input
+		channelNames = append(channelNames, tempName)
 	}
 
-	tempName, err := channels.add(name, url)
-	if err != nil {
-		return lock, errors.Wrap(err, "cannot add channel")
+	if err := channels.update(channelNames...); err != nil {
+		return nil, errors.Wrap(err, "cannot update channels")
 	}
 
-	if err := channels.update(tempName); err != nil {
-		return lock, errors.Wrap(err, "cannot update channel")
+	for name, input := range channelURLs {
+		src, err := nixutil.ChannelSourcePath(ctx, name)
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot get source path for channel")
+		}
+
+		path, err := nixutil.ParseStorePath(src)
+		if err != nil {
+			return nil, errors.Wrap(err, "invalid store path for channel")
+		}
+
+		locks[input] = ChannelLock{
+			URL:       urls[input],
+			StoreHash: path.Hash,
+		}
 	}
 
-	src, err := nixutil.ChannelSourcePath(ctx, tempName)
-	if err != nil {
-		return lock, errors.Wrap(err, "cannot get source path for channel")
-	}
+	return locks, nil
+}
 
-	path, err := nixutil.ParseStorePath(storeDir, src)
-	if err != nil {
-		return lock, errors.Wrap(err, "invalid store path for channel")
-	}
-
-	return ChannelLock{
-		URL:       url,
-		StoreHash: path.Hash,
-	}, nil
+func removeTmpChannels(ctx context.Context) error {
+	channels := newChannelExecer(ctx, true)
+	return channels.removeAll()
 }

@@ -1,7 +1,33 @@
-[root]
- use-sudo = true
- override-channels = false
+[global.channels]
+ nixpkgs_unstable = "github:NixOS/nixpkgs nixos-unstable"
+ nixpkgs_unstable_older = "github:NixOS/nixpkgs 1b1f50645af2a70dc93ea"
+ nixpkgs_unstable_newer = "github:NixOS/nixpkgs nixos-unstable"
+ home-manager_21_11 = "github:nix-community/home-manager release-22.11"
+ home-manager_unstable = "github:nix-community/home-manager master"
 
-[root.channels]
- nixos = "github:NixOS/nixpkgs 1ffba9f"
- home-manager = "git://github.com/nix-community/home-manager master"
+[global.aliases]
+ nixos = "nixpkgs_unstable"
+ nixpkgs = "nixpkgs_unstable"
+ home-manager = "home-manager_unstable"
+
+[flakes]
+ enable = true
+
+[users.root]
+ use-sudo = true
+ override-channels = true
+
+[users.root.channels]
+ # nixos = "github:NixOS/nixpkgs 1ffba9f"
+ nixpkgs_21_11 = "github:NixOS/nixpkgs nixos-21.11"
+ nixpkgs_pipewire_0_3_57 = "github:NixOS/nixpkgs b7a6fde153d"
+ nixpkgs_staging = "github:NixOS/nixpkgs staging"
+ nixpkgs_gradience = "github:foo-dogsquared/nixpkgs add-gradience-app"
+ nixpkgs_shotcut = "github:MatthewCroughan/nixpkgs 6c3dbb326eeff83b11d7cb353c3cead30820e373"
+ nix-wayland = "github:nix-community/nixpkgs-wayland master"
+ prismlauncher = "github:PrismLauncher/PrismLauncher master"
+ unstable = "https://nixos.org/channels/nixos-unstable"
+ nur = "github:nix-community/NUR master"
+
+[users.diamond]
+ override-channels = false

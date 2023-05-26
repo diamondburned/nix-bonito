@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/diamondburned/nix-bonito/bonito"
 	"github.com/pkg/errors"
@@ -11,8 +12,9 @@ import (
 
 type stateFiles struct {
 	bonito.State
-	lockPath   string
-	configPath string
+	lockPath     string
+	configPath   string
+	registryPath string
 }
 
 func readState(ctx *cli.Context) (*stateFiles, error) {
@@ -25,7 +27,7 @@ func readState(ctx *cli.Context) (*stateFiles, error) {
 
 	lockPath := ctx.String("lock-file")
 	if lockPath == "" {
-		lockPath = configPath + ".lock"
+		lockPath = trimExt(configPath) + ".lock.json"
 	}
 
 	lockFile, err := tryReadLockFile(lockPath)
@@ -33,14 +35,27 @@ func readState(ctx *cli.Context) (*stateFiles, error) {
 		return nil, errors.Wrap(err, "cannot read lock file")
 	}
 
+	registryPath := ctx.String("nix-registry-file")
+	if registryPath == "" {
+		registryPath = trimExt(configPath) + ".registry.json"
+	}
+
 	return &stateFiles{
 		State: bonito.State{
 			Config: config,
 			Lock:   lockFile,
 		},
-		lockPath:   lockPath,
-		configPath: configPath,
+		lockPath:     lockPath,
+		configPath:   configPath,
+		registryPath: registryPath,
 	}, nil
+}
+
+func trimExt(name string) string {
+	if i := strings.LastIndexByte(name, '.'); i != -1 {
+		name = name[:i]
+	}
+	return name
 }
 
 func tryReadLockFile(lockPath string) (bonito.LockFile, error) {
@@ -59,7 +74,7 @@ func tryReadLockFile(lockPath string) (bonito.LockFile, error) {
 func readConfigFile(configPath string) (bonito.Config, error) {
 	f, err := os.Open(configPath)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot open config file")
+		return bonito.Config{}, errors.Wrap(err, "cannot open config file")
 	}
 	defer f.Close()
 
@@ -67,20 +82,33 @@ func readConfigFile(configPath string) (bonito.Config, error) {
 }
 
 func (s stateFiles) saveLockFile() error {
-	dir := filepath.Dir(s.lockPath)
+	return writeToFile([]byte(s.Lock.String()), s.lockPath)
+}
 
-	f, err := os.CreateTemp(dir, ".tmp.*.lock")
+func (s stateFiles) saveNixRegistryFile() error {
+	registryJSON, err := s.GenerateNixRegistry()
+	if err != nil {
+		return errors.Wrap(err, "cannot generate flakes registry")
+	}
+
+	return writeToFile(registryJSON, s.registryPath)
+}
+
+func writeToFile(b []byte, dst string) error {
+	dir := filepath.Dir(dst)
+
+	f, err := os.CreateTemp(dir, ".tmp.bonito.*.lock")
 	if err != nil {
 		return errors.Wrap(err, "cannot make temporary lock file")
 	}
 	defer f.Close()
 	defer os.Remove(f.Name())
 
-	if err := s.Lock.WriteTo(f); err != nil {
+	if _, err := f.Write(b); err != nil {
 		return errors.Wrap(err, "cannot write to temporary lock file")
 	}
 
-	if err := os.Rename(f.Name(), s.lockPath); err != nil {
+	if err := os.Rename(f.Name(), dst); err != nil {
 		return errors.Wrap(err, "cannot commit lock file")
 	}
 

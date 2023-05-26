@@ -83,19 +83,23 @@ func Exec(ctx context.Context, out *string, arg0 string, argv ...string) error {
 	var stderr strings.Builder
 	if isVerbose(ctx) {
 		cmd.Stderr = io.MultiWriter(&stderr, os.Stderr)
-		log.Printf("user %q: running command %q", o.Username, append([]string{arg0}, argv...))
+		log.Printf("user %q: running command %q", o.Username, args(arg0, argv))
 	} else {
 		cmd.Stderr = &stderr
 	}
 
 	if err := cmd.Run(); err != nil {
 		if stderr.Len() > 0 {
-			return fmt.Errorf("%s exited status %d: %s", arg0, cmd.ProcessState.ExitCode(), &stderr)
+			return fmt.Errorf("%q exited status %d: %s", args(arg0, argv), cmd.ProcessState.ExitCode(), &stderr)
 		}
 		return err
 	}
 
 	return nil
+}
+
+func args(arg0 string, argv []string) []string {
+	return append([]string{arg0}, argv...)
 }
 
 // CurrentUserIs returns true if the given thisUser's name matches the current
