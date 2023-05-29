@@ -73,7 +73,7 @@ func main() {
 				Usage: "manual path to the lock file, or {config}.lock.json if empty",
 			},
 			&cli.StringFlag{
-				Name:  "nix-registry-file",
+				Name:  "registry-file",
 				Usage: "path to the nix registry JSON file, or {config}.registry.json if empty",
 			},
 		},

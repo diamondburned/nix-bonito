@@ -35,7 +35,7 @@ func readState(ctx *cli.Context) (*stateFiles, error) {
 		return nil, errors.Wrap(err, "cannot read lock file")
 	}
 
-	registryPath := ctx.String("nix-registry-file")
+	registryPath := ctx.String("registry-file")
 	if registryPath == "" {
 		registryPath = trimExt(configPath) + ".registry.json"
 	}

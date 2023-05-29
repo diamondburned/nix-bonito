@@ -299,22 +299,6 @@ func (s *State) Update(ctx context.Context) error {
 	return s.applyGlobal(ctx, updateInputs)
 }
 
-// GenerateFlakesRegistry generates a flakes registry for the current
-// configuration.
-func (s *State) GenerateFlakesRegistry() (json.RawMessage, error) {
-	registry, err := s.flakesRegistry()
-	if err != nil {
-		return nil, err
-	}
-
-	registryJSON, err := json.MarshalIndent(registry, "", "  ")
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot marshal flakes registry")
-	}
-
-	return registryJSON, nil
-}
-
 // GenerateNixRegistry generates the nix.registry attributes as JSON for the
 // current configuration.
 func (s *State) GenerateNixRegistry() (json.RawMessage, error) {
@@ -323,9 +307,19 @@ func (s *State) GenerateNixRegistry() (json.RawMessage, error) {
 		return nil, err
 	}
 
-	registryJSON, err := json.MarshalIndent(registry.convertToNixRegistry(), "", "  ")
+	var v any
+	switch s.Config.Flakes.Output {
+	case "nix":
+		v = registry.convertToNixRegistry()
+	case "flakes":
+		v = registry
+	default:
+		return nil, fmt.Errorf("unknown output format %q", s.Config.Flakes.Output)
+	}
+
+	registryJSON, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot marshal nix registry")
+		return nil, errors.Wrap(err, "cannot marshal registry JSON file")
 	}
 
 	return registryJSON, nil

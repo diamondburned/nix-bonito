@@ -20,7 +20,8 @@ type Config struct {
 
 	// Flakes is the flakes channels.
 	Flakes struct {
-		Enable bool `toml:"enable"`
+		Enable bool   `toml:"enable"`
+		Output string `toml:"output"` // ("nix") or "flakes"
 		ChannelRegistry
 	} `toml:"flakes"`
 
@@ -32,6 +33,7 @@ type Config struct {
 // TOML file.
 func NewConfigFromReader(r io.Reader) (Config, error) {
 	var cfg Config
+	cfg.Flakes.Output = "nix"
 	err := toml.NewDecoder(r).Decode(&cfg)
 	return cfg, err
 }
