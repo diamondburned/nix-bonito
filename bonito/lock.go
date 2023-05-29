@@ -2,6 +2,8 @@ package bonito
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"path"
@@ -33,6 +35,12 @@ type ChannelLock struct {
 	URL string `json:"url"`
 	// StoreHash is the hash part of the /nix/store output path of the channel.
 	StoreHash nixutil.StoreHash `json:"store_hash"`
+}
+
+// HashChanged returns true if the channel URL is the same, but the store hash
+// is different.
+func (l ChannelLock) HashChanged(newer ChannelLock) bool {
+	return l.URL == newer.URL && l.StoreHash != newer.StoreHash
 }
 
 // NewLockFileFromReader creates a new LockFile containing data from the given
@@ -173,40 +181,42 @@ func resolveInputs(ctx context.Context, inputs map[ChannelInput]struct{}) (map[C
 	return urls, nil
 }
 
-func resolveChannelLocks(ctx context.Context, inputs map[ChannelInput]struct{}) (map[ChannelInput]ChannelLock, error) {
-	if len(inputs) == 0 {
+func extractLockedInputURLs(inputLocks map[ChannelInput]ChannelLock) map[ChannelInput]string {
+	inputURLs := make(map[ChannelInput]string, len(inputLocks))
+	for input, lock := range inputLocks {
+		inputURLs[input] = lock.URL
+	}
+	return inputURLs
+}
+
+func resolveChannelLocks(ctx context.Context, inputURLs map[ChannelInput]string) (map[ChannelInput]ChannelLock, error) {
+	if len(inputURLs) == 0 {
 		return nil, nil
 	}
 
-	urls, err := resolveInputs(ctx, inputs)
-	if err != nil {
-		return nil, err
-	}
-
-	locks := make(map[ChannelInput]ChannelLock, len(inputs))
+	locks := make(map[ChannelInput]ChannelLock, len(inputURLs))
 
 	channels := newChannelExecer(ctx, true)
-	channelURLs := make(map[string]ChannelInput, len(inputs))
-	channelNames := make([]string, 0, len(inputs))
+	channelNames := make([]string, 0, len(inputURLs))
+	channelInputs := make(map[string]ChannelInput, len(inputURLs))
 
-	for input := range inputs {
-		name := path.Base(string(input.URL))
-		url := urls[input]
+	for input, url := range inputURLs {
+		tempName := shortHash(url) + "-" + path.Base(string(input.URL))
 
-		tempName, err := channels.add(name, url)
+		chName, err := channels.add(tempName, url)
 		if err != nil {
 			return nil, errors.Wrap(err, "cannot add channel")
 		}
 
-		channelURLs[tempName] = input
-		channelNames = append(channelNames, tempName)
+		channelInputs[chName] = input
+		channelNames = append(channelNames, chName)
 	}
 
 	if err := channels.update(channelNames...); err != nil {
 		return nil, errors.Wrap(err, "cannot update channels")
 	}
 
-	for name, input := range channelURLs {
+	for name, input := range channelInputs {
 		src, err := nixutil.ChannelSourcePath(ctx, name)
 		if err != nil {
 			return nil, errors.Wrap(err, "cannot get source path for channel")
@@ -218,7 +228,7 @@ func resolveChannelLocks(ctx context.Context, inputs map[ChannelInput]struct{}) 
 		}
 
 		locks[input] = ChannelLock{
-			URL:       urls[input],
+			URL:       inputURLs[input],
 			StoreHash: path.Hash,
 		}
 	}
@@ -229,4 +239,10 @@ func resolveChannelLocks(ctx context.Context, inputs map[ChannelInput]struct{}) 
 func removeTmpChannels(ctx context.Context) error {
 	channels := newChannelExecer(ctx, true)
 	return channels.removeAll()
+}
+
+func shortHash(str string) string {
+	h := sha256.New()
+	h.Write([]byte(str))
+	return base64.URLEncoding.EncodeToString(h.Sum(nil))[:16]
 }

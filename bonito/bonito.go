@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"os/user"
@@ -66,7 +67,7 @@ type State struct {
 
 // Apply applies the state onto the current system.
 func (s *State) Apply(ctx context.Context) error {
-	if err := s.applyGlobal(ctx, false); err != nil {
+	if err := s.applyGlobal(ctx, noUpdate); err != nil {
 		return errors.Wrap(err, "cannot apply global channels")
 	}
 
@@ -79,16 +80,18 @@ func (s *State) Apply(ctx context.Context) error {
 	return nil
 }
 
-func (s *State) applyGlobal(ctx context.Context, update bool) error {
+type updateFlag int
+
+const (
+	noUpdate updateFlag = iota
+	updateLocks
+	updateInputs
+)
+
+func (f updateFlag) is(other updateFlag) bool { return f >= other }
+
+func (s *State) applyGlobal(ctx context.Context, update updateFlag) error {
 	channelInputs := s.Config.ChannelInputs()
-	if !update {
-		// If we're not updating, then we should remove channels that are
-		// already locked. Otherwise, channels here will override the locked
-		// ones.
-		for input := range s.Lock.Channels {
-			delete(channelInputs, input)
-		}
-	}
 
 	// If this map is nil, then we're expecting the next loop to populate
 	// everything.
@@ -112,12 +115,32 @@ func (s *State) applyGlobal(ctx context.Context, update bool) error {
 		return errors.Wrap(err, "cannot remove existing temporary channels")
 	}
 
-	locks, err := resolveChannelLocks(ctx, channelInputs)
+	var channelInputURLs map[ChannelInput]string
+	// Fully resolve the inputs if we're updating. Otherwise, we'll just use
+	// the locked ones.
+	if update.is(updateInputs) {
+		channelInputURLs, err = resolveInputs(ctx, channelInputs)
+		if err != nil {
+			return errors.Wrap(err, "cannot resolve input URLs")
+		}
+	} else {
+		channelInputURLs = extractLockedInputURLs(s.Lock.Channels)
+	}
+
+	locks, err := resolveChannelLocks(ctx, channelInputURLs)
 	if err != nil {
 		return errors.Wrap(err, "cannot resolve channel locks")
 	}
 
 	for input, lock := range locks {
+		// Assert that the hashes are the same after resolving the channel
+		// locks.
+		if oldLock, ok := s.Lock.Channels[input]; ok && oldLock.HashChanged(lock) {
+			if !update.is(updateLocks) {
+				return fmt.Errorf("channel %q has a different store hash (try --update-locks)", input)
+			}
+			log.Println("channel", input, "has a different store hash, updating...")
+		}
 		s.Lock.Channels[input] = lock
 	}
 
@@ -243,9 +266,16 @@ func (s State) preferredUser() (preferredUser, error) {
 	return z, errors.New("no suitable user, perhaps run as root or allow use-sudo for root")
 }
 
-// UpdateLocks updates the locks for the current configuration.
+// UpdateLocks updates just the locks for the current configuration.
 func (s *State) UpdateLocks(ctx context.Context) error {
-	return s.applyGlobal(ctx, true)
+	return s.applyGlobal(ctx, updateLocks)
+}
+
+// Update updates the inputs and locks for the current configuration. It is not
+// to be confused with UpdateLocks which only updates the lock hashes,
+// UpdateInputs will also update the input URLs to the latest versions.
+func (s *State) Update(ctx context.Context) error {
+	return s.applyGlobal(ctx, updateInputs)
 }
 
 // GenerateFlakesRegistry generates a flakes registry for the current

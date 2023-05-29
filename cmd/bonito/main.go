@@ -51,11 +51,11 @@ func main() {
 			&cli.BoolFlag{
 				Name:    "update",
 				Aliases: []string{"u"},
-				Usage:   "update channels and lock files",
+				Usage:   "update inputs and locks",
 			},
 			&cli.BoolFlag{
 				Name:  "update-locks",
-				Usage: "update lock files only",
+				Usage: "update locks only",
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -95,7 +95,7 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	if ctx.Bool("update") {
+	if ctx.Bool("update") || ctx.Bool("update-locks") {
 		newState := bonito.State{
 			Config: state.Config,
 			Lock:   state.Lock,
@@ -112,12 +112,15 @@ func run(ctx *cli.Context) error {
 			return nil
 		}
 
-		if err := newState.UpdateLocks(ctx.Context); err != nil {
-			return errors.Wrap(err, "cannot update locks")
-		}
-
-		if ctx.Bool("update-locks") {
-			return nil
+		switch {
+		case ctx.Bool("update"):
+			if err := newState.Update(ctx.Context); err != nil {
+				return errors.Wrap(err, "cannot update inputs to latest versions")
+			}
+		case ctx.Bool("update-locks"):
+			if err := newState.UpdateLocks(ctx.Context); err != nil {
+				return errors.Wrap(err, "cannot update locks")
+			}
 		}
 
 		// Update the actual lock state.
@@ -148,15 +151,18 @@ func recordChannels(state bonito.State) int {
 
 	for name := range state.Config.Global.Channels {
 		log.Print("will update channel global.", name)
+		channelCount++
 	}
 
 	for name := range state.Config.Flakes.Channels {
 		log.Print("will update channel flakes.", name)
+		channelCount++
 	}
 
 	for username, usercfg := range state.Config.Users {
 		for name := range usercfg.Channels {
 			log.Printf("will update channel users.%s.%s", username, name)
+			channelCount++
 		}
 	}
 
