@@ -181,14 +181,6 @@ func resolveInputs(ctx context.Context, inputs map[ChannelInput]struct{}) (map[C
 	return urls, nil
 }
 
-func extractLockedInputURLs(inputLocks map[ChannelInput]ChannelLock) map[ChannelInput]string {
-	inputURLs := make(map[ChannelInput]string, len(inputLocks))
-	for input, lock := range inputLocks {
-		inputURLs[input] = lock.URL
-	}
-	return inputURLs
-}
-
 func resolveChannelLocks(ctx context.Context, inputURLs map[ChannelInput]string) (map[ChannelInput]ChannelLock, error) {
 	if len(inputURLs) == 0 {
 		return nil, nil

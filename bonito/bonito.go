@@ -115,19 +115,40 @@ func (s *State) applyGlobal(ctx context.Context, update updateFlag) error {
 		return errors.Wrap(err, "cannot remove existing temporary channels")
 	}
 
-	var channelInputURLs map[ChannelInput]string
+	var inputURLs map[ChannelInput]string
 	// Fully resolve the inputs if we're updating. Otherwise, we'll just use
 	// the locked ones.
 	if update.is(updateInputs) {
-		channelInputURLs, err = resolveInputs(ctx, channelInputs)
+		inputURLs, err = resolveInputs(ctx, channelInputs)
 		if err != nil {
 			return errors.Wrap(err, "cannot resolve input URLs")
 		}
 	} else {
-		channelInputURLs = extractLockedInputURLs(s.Lock.Channels)
+		inputURLs = make(map[ChannelInput]string, len(channelInputs))
+
+		// Ensure that channelInputs doesn't have any missing locks.
+		// If it does, we'll need to update them.
+		missingInputs := make(map[ChannelInput]struct{}, len(channelInputs))
+		for input := range channelInputs {
+			lock, ok := inputURLs[input]
+			if ok {
+				inputURLs[input] = lock
+			} else {
+				missingInputs[input] = struct{}{}
+			}
+		}
+
+		newInputURLs, err := resolveInputs(ctx, missingInputs)
+		if err != nil {
+			return errors.Wrap(err, "cannot resolve missing input URLs")
+		}
+
+		for input, url := range newInputURLs {
+			inputURLs[input] = url
+		}
 	}
 
-	locks, err := resolveChannelLocks(ctx, channelInputURLs)
+	locks, err := resolveChannelLocks(ctx, inputURLs)
 	if err != nil {
 		return errors.Wrap(err, "cannot resolve channel locks")
 	}
