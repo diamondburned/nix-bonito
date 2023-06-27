@@ -2,6 +2,7 @@ package gitutil
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/diamondburned/nix-bonito/bonito/internal/executil"
@@ -18,7 +19,7 @@ func RefCommit(ctx context.Context, remote, ref string) (string, error) {
 
 	parts := strings.Fields(out)
 	if len(parts) < 1 {
-		return "", nil
+		return "", fmt.Errorf("ref %q not found", ref)
 	}
 
 	return parts[0], nil
