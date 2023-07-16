@@ -152,7 +152,8 @@ func (s *State) applyGlobal(ctx context.Context, update updateFlag) error {
 	for input, lock := range locks {
 		// Assert that the hashes are the same after resolving the channel
 		// locks.
-		if oldLock, ok := s.Lock.Channels[input]; ok && oldLock.HashChanged(lock) {
+		oldLock, ok := s.Lock.Channels[input]
+		if ok && input.CanResolve() && oldLock.HashChanged(lock) {
 			if !update.is(updateLocks) {
 				return fmt.Errorf("channel %q has a different store hash (try --update-locks)", input)
 			}
