@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"log"
 	"path"
 	"sync"
 
@@ -110,6 +111,11 @@ func (u *locksUpdater) add(channelInputs map[string]ChannelInput) (err error) {
 			continue
 		}
 
+		if !input.CanResolve() {
+			log.Printf("not locking input %q as it's not resolving", input)
+			continue
+		}
+
 		url, err := input.Resolve(u.ctx)
 		if err != nil {
 			return errors.Wrapf(err, "cannot resolve %q", input)
@@ -159,6 +165,11 @@ func resolveInputs(ctx context.Context, inputs map[ChannelInput]struct{}) (map[C
 
 	for input := range inputs {
 		input := input
+
+		if !input.CanResolve() {
+			log.Printf("not resolving input %q as it's not resolvable", input)
+			continue
+		}
 
 		errg.Go(func() error {
 			url, err := input.Resolve(ctx)

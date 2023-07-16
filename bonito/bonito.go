@@ -42,13 +42,9 @@ func (u ChannelURL) Validate() error {
 	}
 
 	// TODO: VCS scheme validation
-	url, err := u.Parse()
+	_, err := u.Parse()
 	if err != nil {
 		return err
-	}
-
-	if _, ok := ChannelResolvers[url.Scheme]; !ok {
-		return fmt.Errorf("unknown scheme %q", url.Scheme)
 	}
 
 	return nil

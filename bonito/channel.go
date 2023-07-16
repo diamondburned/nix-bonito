@@ -35,6 +35,17 @@ func ParseChannelInput(chInput string) (ChannelInput, error) {
 	return in, nil
 }
 
+// CanResolve returns true if the channel input's URL scheme is recognized.
+func (in ChannelInput) CanResolve() bool {
+	u, err := in.URL.Parse()
+	if err != nil {
+		return false
+	}
+
+	_, ok := ChannelResolvers[u.Scheme]
+	return ok
+}
+
 // Resolve resolves the channel input using one of the ChannelResolvers.
 func (in ChannelInput) Resolve(ctx context.Context) (string, error) {
 	u, err := in.URL.Parse()
@@ -44,7 +55,7 @@ func (in ChannelInput) Resolve(ctx context.Context) (string, error) {
 
 	resolve, ok := ChannelResolvers[u.Scheme]
 	if !ok {
-		return "", fmt.Errorf("cannot resolve unknown %q", u.Scheme)
+		return "", fmt.Errorf("cannot resolve unknown scheme %q", u.Scheme)
 	}
 
 	return resolve(ctx, in)
@@ -122,12 +133,6 @@ var ChannelResolvers = map[string]ChannelResolver{
 	"github":  resolveGit,
 	"gitlab":  resolveGit,
 	"gitsrht": resolveGit,
-	"http":    useSameURL,
-	"https":   useSameURL,
-}
-
-func useSameURL(ctx context.Context, in ChannelInput) (string, error) {
-	return string(in.URL), nil
 }
 
 type channelExecer struct {
