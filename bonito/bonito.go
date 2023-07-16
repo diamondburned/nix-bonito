@@ -126,9 +126,9 @@ func (s *State) applyGlobal(ctx context.Context, update updateFlag) error {
 		// If it does, we'll need to update them.
 		missingInputs := make(map[ChannelInput]struct{}, len(channelInputs))
 		for input := range channelInputs {
-			lock, ok := inputURLs[input]
+			lock, ok := s.Lock.Channels[input]
 			if ok {
-				inputURLs[input] = lock
+				inputURLs[input] = lock.URL
 			} else {
 				missingInputs[input] = struct{}{}
 			}
