@@ -20,6 +20,12 @@ type stateFiles struct {
 func readState(ctx *cli.Context) (*stateFiles, error) {
 	configPath := ctx.String("config")
 
+	// Resolve configPath to an absolute path so that symlinks are resolved.
+	var err error
+	if configPath, err = filepath.EvalSymlinks(configPath); err != nil {
+		return nil, errors.Wrap(err, "cannot resolve config path")
+	}
+
 	config, err := readConfigFile(configPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot read config file")
