@@ -217,7 +217,7 @@ func (s *State) applyUser(ctx context.Context, username string, usercfg UserConf
 
 	for name, input := range channelInputs {
 		lock, ok := s.Lock.Channels[input]
-		if !ok {
+		if !ok && input.CanResolve() {
 			return fmt.Errorf("channel %q has no lock", name)
 		}
 
@@ -335,7 +335,7 @@ func (s *State) flakesRegistry() (*flakesRegistryV2, error) {
 
 	for name, input := range channelInputs {
 		lock, ok := s.Lock.Channels[input]
-		if !ok {
+		if !ok && input.CanResolve() {
 			return nil, fmt.Errorf("channel %q has no lock, perhaps run bonito first", name)
 		}
 
