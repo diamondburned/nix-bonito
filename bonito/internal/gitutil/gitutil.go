@@ -28,12 +28,7 @@ func RefCommit(ctx context.Context, remote, ref string) (string, error) {
 		remote,
 	}
 
-	if strings.HasSuffix(ref, "*") {
-		// If ref isn't prefixed with refs/*, we assume it's a branch. This is
-		// done to prevent confusion with refs/remotes.
-		if !strings.HasPrefix(ref, "refs/") {
-			ref = "refs/heads/" + ref
-		}
+	if !strings.HasSuffix(ref, "*") {
 		// Require an exact match.
 		args = append(args, ref)
 	}
