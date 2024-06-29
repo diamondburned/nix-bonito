@@ -1,6 +1,7 @@
 package bonito
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/pelletier/go-toml/v2"
@@ -77,6 +78,25 @@ func (cfg Config) FilterChannels(names []string) Config {
 	}
 
 	return cfg
+}
+
+// UserChannels returns the ChannelRegistry for the given user combined with the
+// global channels.
+func (cfg Config) UserChannels(user string) (map[string]ChannelInput, error) {
+	rs := make([]ChannelRegistry, 1, 2)
+	rs[0] = cfg.Global.ChannelRegistry
+	u, ok := cfg.Users[user]
+	if ok {
+		rs = append(rs, u.ChannelRegistry)
+	}
+	res, err := CombineChannelRegistries(rs)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return res, fmt.Errorf("unknown user %q", user)
+	}
+	return res, nil
 }
 
 // UserConfig is the structure of the user configuration.

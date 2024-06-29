@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/diamondburned/nix-bonito/bonito"
@@ -75,6 +78,33 @@ func main() {
 			&cli.StringFlag{
 				Name:  "registry-file",
 				Usage: "path to the nix registry JSON file, or {config}.registry.json if empty",
+			},
+		},
+		Commands: []*cli.Command{
+			{
+				Name:   "include-flags",
+				Usage:  "generate -I flags for NIX_PATH and Nix CLIs",
+				Action: runIncludeFlags,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "user",
+						Aliases: []string{"u"},
+						Usage:   "generate flags for a specific user, default to current user",
+					},
+				},
+			},
+			{
+				Name:      "store-path",
+				Usage:     "query the store path of a channel input",
+				ArgsUsage: "channel",
+				Action:    runStorePath,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "user",
+						Aliases: []string{"u"},
+						Usage:   "generate flags for a specific user, default to current user",
+					},
+				},
 			},
 		},
 	}
@@ -167,4 +197,81 @@ func recordChannels(state bonito.State) int {
 	}
 
 	return channelCount
+}
+
+func runIncludeFlags(ctx *cli.Context) error {
+	state, err := readState(ctx)
+	if err != nil {
+		return err
+	}
+
+	username, err := currentUsername(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot get current user: %w", err)
+	}
+
+	channelInputs, err := state.Config.UserChannels(username)
+	if err != nil {
+		return fmt.Errorf("cannot get channels for user %q: %w", username, err)
+	}
+
+	values := make([]string, 0, len(channelInputs))
+	for name, input := range channelInputs {
+		lock, ok := state.Lock.Channels[input]
+		if !ok || lock.StorePath == "" {
+			return fmt.Errorf("channel %q has no lock, try running `bonito` again?", name)
+		}
+		value := fmt.Sprintf("-I %s=%s", name, lock.StorePath)
+		values = append(values, value)
+	}
+
+	fmt.Println(strings.Join(values, " "))
+	return nil
+}
+
+func runStorePath(ctx *cli.Context) error {
+	state, err := readState(ctx)
+	if err != nil {
+		return err
+	}
+
+	channel := ctx.Args().First()
+	if channel == "" {
+		return errors.New("channel argument is required")
+	}
+
+	username, err := currentUsername(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot get current user: %w", err)
+	}
+
+	channelInputs, err := state.Config.UserChannels(username)
+	if err != nil {
+		return fmt.Errorf("cannot get channels for user %q: %w", username, err)
+	}
+
+	channelInput, ok := channelInputs[channel]
+	if !ok {
+		return fmt.Errorf("channel %q not found", channel)
+	}
+
+	lock, ok := state.Lock.Channels[channelInput]
+	if !ok {
+		return fmt.Errorf("channel %q has no lock, try running `bonito` again?", channel)
+	}
+
+	fmt.Println(lock.StorePath)
+	return nil
+}
+
+func currentUsername(ctx *cli.Context) (string, error) {
+	username := ctx.String("user")
+	if username == "" {
+		u, err := user.Current()
+		if err != nil {
+			return "", fmt.Errorf("cannot get current user: %w", err)
+		}
+		username = u.Username
+	}
+	return username, nil
 }
