@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -42,7 +43,7 @@ func ChannelSourcePath(ctx context.Context, channelName string) (string, error) 
 	var out string
 	// Use Exec so sudo works.
 	err = executil.Exec(ctx, &out, "readlink", defexpr)
-	return out, err
+	return strings.TrimSpace(out), err
 }
 
 var storeDir atomic.Pointer[string]

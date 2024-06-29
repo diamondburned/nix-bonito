@@ -36,6 +36,8 @@ type ChannelLock struct {
 	URL string `json:"url"`
 	// StoreHash is the hash part of the /nix/store output path of the channel.
 	StoreHash nixutil.StoreHash `json:"store_hash"`
+	// StorePath is the path of the /nix/store output path of the channel.
+	StorePath string `json:"store_path,omitempty"`
 }
 
 // HashChanged returns true if the channel URL is the same, but the store hash
@@ -151,6 +153,7 @@ func (u *locksUpdater) add(channelInputs map[string]ChannelInput) (err error) {
 		u.locks[input] = ChannelLock{
 			URL:       add.url,
 			StoreHash: path.Hash,
+			StorePath: src,
 		}
 	}
 
@@ -233,6 +236,7 @@ func resolveChannelLocks(ctx context.Context, inputURLs map[ChannelInput]string)
 		locks[input] = ChannelLock{
 			URL:       inputURLs[input],
 			StoreHash: path.Hash,
+			StorePath: src,
 		}
 	}
 
