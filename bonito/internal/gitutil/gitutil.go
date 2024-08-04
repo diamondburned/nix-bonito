@@ -29,9 +29,7 @@ func RefCommit(ctx context.Context, remote, ref string) (string, error) {
 	}
 
 	if !strings.HasSuffix(ref, "*") {
-		// If the ref isn't a commit hash, then treat it as a tag and append ^{}
-		// so we can get the commit hash of the tag.
-		if !isValidCommitHash(ref) {
+		if strings.HasPrefix(ref, "refs/") {
 			ref += "^{}"
 		}
 		// Require an exact match.
