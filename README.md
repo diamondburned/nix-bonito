@@ -23,6 +23,9 @@ bonito -c hackadoll3.toml
 # Update channels that are referenced as branches (refs), such as
 # "github:NixOS/nixpkgs nixos-unstable".
 bonito -u
+
+# Update a single channel.
+bonito -u nixos-unstable
 ```
 
 For an example configuration, see the [Example file](./example/hackadoll3.toml).
