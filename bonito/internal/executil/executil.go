@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
@@ -83,15 +83,30 @@ func Exec(ctx context.Context, out *string, arg0 string, argv ...string) error {
 	var stderr strings.Builder
 	if isVerbose(ctx) {
 		cmd.Stderr = io.MultiWriter(&stderr, os.Stderr)
-		log.Printf("user %q: running command %q", o.Username, args(arg0, argv))
+		slog.Debug(
+			"running command",
+			"user", o.Username,
+			"args", args(arg0, argv))
 	} else {
 		cmd.Stderr = &stderr
 	}
 
 	if err := cmd.Run(); err != nil {
 		if stderr.Len() > 0 {
-			return fmt.Errorf("%q exited status %d: %s", args(arg0, argv), cmd.ProcessState.ExitCode(), &stderr)
+			slog.Warn(
+				"command failed with non-zero exit status",
+				"user", o.Username,
+				"args", args(arg0, argv),
+				"status", cmd.ProcessState.ExitCode(),
+				"stderr", stderr.String())
+			return fmt.Errorf("%s failed", arg0)
 		}
+
+		slog.Warn(
+			"command failed with error",
+			"user", o.Username,
+			"args", args(arg0, argv),
+			"err", err)
 		return err
 	}
 

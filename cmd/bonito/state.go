@@ -7,7 +7,7 @@ import (
 
 	"github.com/diamondburned/nix-bonito/bonito"
 	"github.com/pkg/errors"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 type stateFiles struct {
@@ -17,8 +17,8 @@ type stateFiles struct {
 	registryPath string
 }
 
-func readState(ctx *cli.Context) (*stateFiles, error) {
-	configPath := ctx.String("config")
+func readState(cmd *cli.Command) (*stateFiles, error) {
+	configPath := cmd.String("config")
 
 	// Resolve configPath to an absolute path so that symlinks are resolved.
 	var err error
@@ -31,7 +31,7 @@ func readState(ctx *cli.Context) (*stateFiles, error) {
 		return nil, errors.Wrap(err, "cannot read config file")
 	}
 
-	lockPath := ctx.String("lock-file")
+	lockPath := cmd.String("lock-file")
 	if lockPath == "" {
 		lockPath = trimExt(configPath) + ".lock.json"
 	}
@@ -41,7 +41,7 @@ func readState(ctx *cli.Context) (*stateFiles, error) {
 		return nil, errors.Wrap(err, "cannot read lock file")
 	}
 
-	registryPath := ctx.String("registry-file")
+	registryPath := cmd.String("registry-file")
 	if registryPath == "" {
 		registryPath = trimExt(configPath) + ".registry.json"
 	}

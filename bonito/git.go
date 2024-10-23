@@ -3,6 +3,7 @@ package bonito
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path"
 	"strings"
@@ -82,7 +83,16 @@ func resolveGit(ctx context.Context, in ChannelInput) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "cannot get version")
 	}
+
 	if commit != "" {
+		if strings.HasPrefix(commit, in.Version) {
+			// If the version is part of the resolved commit hash, then we're
+			// not updating anything. Warn about this.
+			slog.Warn(
+				"not updating git input as a commit is being used",
+				"input", in)
+		}
+
 		// Found a commit associated to a ref. Use that as the version for our
 		// URL.
 		in.Version = commit

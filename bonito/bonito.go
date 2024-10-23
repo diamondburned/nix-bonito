@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/user"
@@ -157,7 +157,11 @@ func (s *State) applyGlobal(ctx context.Context, update updateFlag) error {
 			if !update.is(updateLocks) {
 				return fmt.Errorf("channel %q has a different store hash (try --update-locks)", input)
 			}
-			log.Println("channel", input, "has a different store hash, updating...")
+			slog.Info(
+				"updating channel input with changed hash",
+				"input", input,
+				"old", oldLock.StoreHash,
+				"new", lock.StoreHash)
 		}
 		s.Lock.Channels[input] = lock
 	}

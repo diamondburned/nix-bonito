@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"os/user"
@@ -13,15 +13,18 @@ import (
 
 	"github.com/diamondburned/nix-bonito/bonito"
 	"github.com/gofrs/flock"
+	"github.com/lmittmann/tint"
+	"github.com/mattn/go-isatty"
 	"github.com/pkg/errors"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 const flockName = "bonito.lock"
 
-func init() {
-	log.SetFlags(0)
-}
+var (
+	flockPath = filepath.Join(os.TempDir(), "bonito.lock")
+	flockLock = flock.New(flockPath)
+)
 
 func main() {
 	var defaultConfigFile string
@@ -32,23 +35,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	flockPath := filepath.Join(os.TempDir(), "bonito.lock")
-	flock := flock.New(flockPath)
-
-	_, err := flock.TryLockContext(ctx, time.Second)
-	if err != nil {
-		log.Fatalf("cannot acquire %s: %v", flockPath, err)
-	}
-	defer func() {
-		if err := flock.Unlock(); err != nil {
-			log.Fatalf("cannot release %s: %v", flockPath, err)
-		}
-	}()
-
-	app := cli.App{
+	cmd := cli.Command{
 		Name:      "bonito",
 		Usage:     "Declarative Nix channel manager",
-		Action:    run,
+		Before:    cmdInit,
+		After:     cmdFinish,
+		Action:    cmdRun,
 		ArgsUsage: "[channels...]",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
@@ -79,6 +71,11 @@ func main() {
 				Name:  "registry-file",
 				Usage: "path to the nix registry JSON file, or {config}.registry.json if empty",
 			},
+			&cli.BoolFlag{
+				Name:  "no-color",
+				Usage: "disable colored logging, true if stderr is not a terminal",
+				Value: os.Getenv("NO_COLOR") != "" || !isatty.IsTerminal(os.Stderr.Fd()),
+			},
 		},
 		Commands: []*cli.Command{
 			{
@@ -107,48 +104,96 @@ func main() {
 				},
 			},
 		},
+		ExitErrHandler: func(ctx context.Context, cmd *cli.Command, err error) {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				slog.Info("interrupted", tint.Err(err))
+			} else {
+				slog.Error("fatal error", tint.Err(err))
+			}
+			os.Exit(1)
+		},
 	}
 
-	if err := app.RunContext(ctx, os.Args); err != nil {
-		cli.HandleExitCoder(err)
-		log.Fatalln(err)
-	}
+	cmd.Run(ctx, os.Args)
 }
 
-func run(ctx *cli.Context) error {
-	if ctx.Bool("verbose") {
-		ctx.Context = bonito.WithVerbose(ctx.Context)
+func cmdInit(ctx context.Context, cmd *cli.Command) error {
+	level := slog.LevelInfo
+	if cmd.Bool("verbose") {
+		level = slog.LevelDebug
 	}
 
-	state, err := readState(ctx)
+	tintLogger := tint.NewHandler(cmd.ErrWriter, &tint.Options{
+		Level:   level,
+		NoColor: cmd.Bool("no-color"),
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// Do not include timestamps in logs.
+			if a.Key == slog.TimeKey && len(groups) == 0 {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})
+
+	logger := slog.New(tintLogger)
+	slog.SetDefault(logger)
+
+	_, err := flockLock.TryLockContext(ctx, time.Second)
+	if err != nil {
+		slog.Warn(
+			"cannot acquire file lock",
+			"path", flockPath,
+			"err", err)
+	}
+
+	return nil
+}
+
+func cmdFinish(ctx context.Context, cmd *cli.Command) error {
+	if err := flockLock.Unlock(); err != nil {
+		slog.Warn(
+			"cannot release file lock",
+			"path", flockPath,
+			"err", err)
+	}
+
+	return nil
+}
+
+func cmdRun(ctx context.Context, cmd *cli.Command) error {
+	if cmd.Bool("verbose") {
+		ctx = bonito.WithVerbose(ctx)
+	}
+
+	state, err := readState(cmd)
 	if err != nil {
 		return err
 	}
 
-	if ctx.Bool("update") || ctx.Bool("update-locks") {
+	if cmd.Bool("update") || cmd.Bool("update-locks") {
 		newState := bonito.State{
 			Config: state.Config,
 			Lock:   state.Lock,
 		}
 
-		channels := ctx.Args().Slice()
+		channels := cmd.Args().Slice()
 		if len(channels) > 0 {
 			newState.Config = state.Config.FilterChannels(channels)
 		}
 
 		channelCount := recordChannels(newState)
 		if channelCount == 0 {
-			log.Println("no channels to update")
+			slog.Warn("no channels to update")
 			return nil
 		}
 
 		switch {
-		case ctx.Bool("update"):
-			if err := newState.Update(ctx.Context); err != nil {
+		case cmd.Bool("update"):
+			if err := newState.Update(ctx); err != nil {
 				return errors.Wrap(err, "cannot update inputs to latest versions")
 			}
-		case ctx.Bool("update-locks"):
-			if err := newState.UpdateLocks(ctx.Context); err != nil {
+		case cmd.Bool("update-locks"):
+			if err := newState.UpdateLocks(ctx); err != nil {
 				return errors.Wrap(err, "cannot update locks")
 			}
 		}
@@ -157,9 +202,9 @@ func run(ctx *cli.Context) error {
 		state.Lock = newState.Lock
 	}
 
-	log.Println("applying channels...")
+	slog.Info("applying channels")
 
-	if err := state.Apply(ctx.Context); err != nil {
+	if err := state.Apply(ctx); err != nil {
 		return errors.Wrap(err, "cannot apply")
 	}
 
@@ -179,19 +224,32 @@ func run(ctx *cli.Context) error {
 func recordChannels(state bonito.State) int {
 	var channelCount int
 
-	for name := range state.Config.Global.Channels {
-		log.Print("will update channel global.", name)
+	for name, input := range state.Config.Global.Channels {
+		slog.Info(
+			"updating global channel",
+			"channel", name,
+			"input", input,
+			"scope", "global")
 		channelCount++
 	}
 
-	for name := range state.Config.Flakes.Channels {
-		log.Print("will update channel flakes.", name)
+	for name, input := range state.Config.Flakes.Channels {
+		slog.Info(
+			"updating flakes channel",
+			"channel", name,
+			"input", input,
+			"scope", "flakes")
 		channelCount++
 	}
 
 	for username, usercfg := range state.Config.Users {
-		for name := range usercfg.Channels {
-			log.Printf("will update channel users.%s.%s", username, name)
+		for name, input := range usercfg.Channels {
+			slog.Info(
+				"updating user channel",
+				"channel", name,
+				"input", input,
+				"scope", "user",
+				"user", username)
 			channelCount++
 		}
 	}
@@ -199,13 +257,13 @@ func recordChannels(state bonito.State) int {
 	return channelCount
 }
 
-func runIncludeFlags(ctx *cli.Context) error {
-	state, err := readState(ctx)
+func runIncludeFlags(ctx context.Context, cmd *cli.Command) error {
+	state, err := readState(cmd)
 	if err != nil {
 		return err
 	}
 
-	username, err := currentUsername(ctx)
+	username, err := currentUsername(cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get current user: %w", err)
 	}
@@ -229,18 +287,18 @@ func runIncludeFlags(ctx *cli.Context) error {
 	return nil
 }
 
-func runStorePath(ctx *cli.Context) error {
-	state, err := readState(ctx)
+func runStorePath(ctx context.Context, cmd *cli.Command) error {
+	state, err := readState(cmd)
 	if err != nil {
 		return err
 	}
 
-	channel := ctx.Args().First()
+	channel := cmd.Args().First()
 	if channel == "" {
 		return errors.New("channel argument is required")
 	}
 
-	username, err := currentUsername(ctx)
+	username, err := currentUsername(cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get current user: %w", err)
 	}
@@ -264,8 +322,8 @@ func runStorePath(ctx *cli.Context) error {
 	return nil
 }
 
-func currentUsername(ctx *cli.Context) (string, error) {
-	username := ctx.String("user")
+func currentUsername(cmd *cli.Command) (string, error) {
+	username := cmd.String("user")
 	if username == "" {
 		u, err := user.Current()
 		if err != nil {

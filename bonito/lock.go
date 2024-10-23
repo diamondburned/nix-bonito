@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"path"
 	"sync"
 
@@ -114,7 +114,9 @@ func (u *locksUpdater) add(channelInputs map[string]ChannelInput) (err error) {
 		}
 
 		if !input.CanResolve() {
-			log.Printf("not locking input %q as it's not resolving", input)
+			slog.Info(
+				"skipping unresolvable input",
+				"input", input)
 			continue
 		}
 
@@ -170,7 +172,9 @@ func resolveInputs(ctx context.Context, inputs map[ChannelInput]struct{}) (map[C
 		input := input
 
 		if !input.CanResolve() {
-			log.Printf("not resolving input %q as it's not resolvable", input)
+			slog.Info(
+				"skipping unresolvable input",
+				"input", input)
 			continue
 		}
 
@@ -179,6 +183,11 @@ func resolveInputs(ctx context.Context, inputs map[ChannelInput]struct{}) (map[C
 			if err != nil {
 				return errors.Wrapf(err, "cannot resolve %q", input)
 			}
+
+			slog.Debug(
+				"resolved input to static URL for Nix",
+				"input", input,
+				"url", url)
 
 			mu.Lock()
 			urls[input] = url
